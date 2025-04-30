@@ -69,9 +69,11 @@ public class ViewGradesActivity extends AppCompatActivity {
 
         if (totalCoefficient > 0) {
             double average = total / totalCoefficient;
-            textViewAverage.setText("معدلك: " + String.format("%.2f", average));
+            String status = average >= 10 ? "ناجح" : "راسب";
+            textViewAverage.setText("معدلك: " + String.format("%.2f", average) + " - " + status);
         } else {
             textViewAverage.setText("لا توجد نقاط لحساب المعدل");
         }
     }
+
 }

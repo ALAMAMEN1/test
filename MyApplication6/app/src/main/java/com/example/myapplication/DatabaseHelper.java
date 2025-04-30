@@ -11,34 +11,121 @@ import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonArrayRequest;
 import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.RequestFuture;
+import com.android.volley.toolbox.StringRequest;
 import com.android.volley.toolbox.Volley;
 import com.example.myapplication.models.Student;
 import com.example.myapplication.models.Assignment;
 import com.example.myapplication.models.Note;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 public class DatabaseHelper extends SQLiteOpenHelper {
 
     private static final String DATABASE_NAME = "student_management.db";
 
-    private static final int DATABASE_VERSION = 2;
-    private static final String SUBJECTS_URL = "https://raw.githubusercontent.com/ALAMAMEN1/app/refs/heads/main/S1.json";//بدلي الرابط هنا
+    private static final int DATABASE_VERSION = 3;
+    private static final String SUBJECTS_URL = "https://num.univ-biskra.dz/psp/formations/get_modules_json?sem=1&spec=184";//بدلي الرابط هنا
     private RequestQueue requestQueue;
 
     public interface SubjectCallback {
         void onSubjectsLoaded(List<String> subjects);
     }
+    public interface CoefficientCallback {
+        void onResult(int coefficient);
+        void onError(String error);
+    }
+    public void getCoefficientForSubjectFromJSON(Context context, String moduleName, CoefficientCallback callback) {
+        String SUBJECTS_URL = "https://num.univ-biskra.dz/psp/formations/get_modules_json?sem=1&spec=184";
+
+        StringRequest request = new StringRequest(Request.Method.GET, SUBJECTS_URL,
+                response -> {
+                    try {
+                        JSONArray jsonArray = new JSONArray(response);
+                        for (int i = 0; i < jsonArray.length(); i++) {
+                            JSONObject obj = jsonArray.getJSONObject(i);
+                            String name = obj.getString("Nom_module").trim(); 
+                            if (name.equalsIgnoreCase(moduleName.trim())) {
+                                String coefStr = obj.getString("Coefficient").trim();
+                                int coefficient = Integer.parseInt(coefStr);
+                                callback.onResult(coefficient);
+                                return;
+                            }
+                        }
+                        callback.onResult(-1);
+                    } catch (JSONException e) {
+                        callback.onError("JSON Error: " + e.getMessage());
+                    }
+                },
+                error -> {
+                    callback.onError("Volley Error: " + error.toString());
+                }
+        );
+
+        Volley.newRequestQueue(context).add(request);
+    }
+
+
+
+
+
+
 
 
     public DatabaseHelper(Context context) {
         super(context, DATABASE_NAME, null, DATABASE_VERSION);
         requestQueue = Volley.newRequestQueue(context);
+        loadSubjectsFromUrl(context,SUBJECTS_URL);
     }
+
+    public void loadSubjectsFromUrl(Context context, String url) {
+        RequestQueue queue = Volley.newRequestQueue(context);
+
+        JsonArrayRequest jsonArrayRequest = new JsonArrayRequest(
+                Request.Method.GET, url, null,
+                response -> {
+                    try {
+                        for (int i = 0; i < response.length(); i++) {
+                            JSONObject obj = response.getJSONObject(i);
+                            String subject = obj.getString("Nom_module").trim();
+                            if (!subjectExists(subject)) {
+                                addSubject(subject);
+                            }
+                        }
+                        Log.d("Volley", "تم تحميل المواد من السيرفر");
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                },
+                error -> Log.e("Volley", "خطأ في تحميل المواد: " + error.getMessage())
+        );
+
+        queue.add(jsonArrayRequest);
+    }
+
+
+    public boolean subjectExists(String subjectName) {
+        SQLiteDatabase db = this.getReadableDatabase();
+        Cursor cursor = db.rawQuery("SELECT 1 FROM subjects WHERE name = ?", new String[]{subjectName});
+        boolean exists = cursor.moveToFirst();
+        cursor.close();
+        return exists;
+    }
+
+    public void addSubject(String subjectName) {
+        SQLiteDatabase db = this.getWritableDatabase();
+        ContentValues values = new ContentValues();
+        values.put("name", subjectName);
+        db.insert("subjects", null, values);
+    }
+
+
 
     @Override
     public void onCreate(SQLiteDatabase db) {
@@ -53,6 +140,15 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE years (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)");
         db.execSQL("CREATE TABLE groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)");
 
+        fetchSubjectsFromServer(subjects -> {
+            SQLiteDatabase writableDb = this.getWritableDatabase();
+            for (String name : subjects) {
+                ContentValues values = new ContentValues();
+                values.put("name", name);
+                writableDb.insertWithOnConflict("subjects", null, values, SQLiteDatabase.CONFLICT_IGNORE);
+            }
+        });
+
         insertInitialData(db);
     }
     public void fetchSubjectsFromServer(SubjectCallback callback) {
@@ -62,7 +158,7 @@ public class DatabaseHelper extends SQLiteOpenHelper {
                     for (int i = 0; i < response.length(); i++) {
                         try {
                             JSONObject subjectObj = response.getJSONObject(i);
-                            String name = subjectObj.getString("name");
+                            String name = subjectObj.getString("Nom_module");
                             subjects.add(name);
                         } catch (JSONException e) {
                             e.printStackTrace();
@@ -81,7 +177,7 @@ public class DatabaseHelper extends SQLiteOpenHelper {
     public void sendSubjectToServer(String name, Runnable onSuccess, Runnable onError) {
         JSONObject data = new JSONObject();
         try {
-            data.put("name", name);
+            data.put("Nom_module", name);
         } catch (JSONException e) {
             e.printStackTrace();
             onError.run();
@@ -109,12 +205,8 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         insertUserIfNotExists(db, "teacher1@example.com", "123456", "teacher");
         insertUserIfNotExists(db, "teacher2@example.com", "123456", "teacher");
 
-        insertSubjectIfNotExists(db, "رياضيات");
-        insertSubjectIfNotExists(db, "برمجة");
-        insertSubjectIfNotExists(db, "فيزياء");
-
-        insertFormationIfNotExists(db, "العلوم");
-        insertFormationIfNotExists(db, "الهندسة");
+        insertFormationIfNotExists(db, "علم حاسوب");
+        //insertFormationIfNotExists(db, "الهندسة");
 
         insertSectionIfNotExists(db, "الشعبة 1");
         insertSectionIfNotExists(db, "الشعبة 2");
@@ -393,10 +485,7 @@ public class DatabaseHelper extends SQLiteOpenHelper {
     public List<String> getSubjectsForTeacher(String teacherEmail) {
         List<String> subjects = new ArrayList<>();
         SQLiteDatabase db = this.getReadableDatabase();
-        Cursor cursor = db.rawQuery(
-                "SELECT DISTINCT subject FROM assignments WHERE teacher=?",
-                new String[]{teacherEmail}
-        );
+        Cursor cursor = db.rawQuery("SELECT DISTINCT subject FROM assignments WHERE teacher=?", new String[]{teacherEmail});
         if (cursor.moveToFirst()) {
             do {
                 subjects.add(cursor.getString(0));
@@ -405,6 +494,7 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         cursor.close();
         return subjects;
     }
+
 
     public List<Student> getStudentsForTeacherAndSubject(String teacherEmail, String subject) {
         List<Student> students = new ArrayList<>();

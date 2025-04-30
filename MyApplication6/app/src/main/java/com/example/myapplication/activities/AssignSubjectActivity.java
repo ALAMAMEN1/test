@@ -3,6 +3,7 @@ package com.example.myapplication.activities;
 import android.app.AlertDialog;
 import android.os.Bundle;
 import android.text.InputType;
+import android.util.Log;
 import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
 import android.widget.Toast;
@@ -21,9 +22,9 @@ public class AssignSubjectActivity extends AppCompatActivity {
 
     private AutoCompleteTextView autoTeachers, autoSubjects, autoFormation,
             autoSection, autoYear, autoGroup;
-    private TextInputEditText editTextCoefficient;
     private MaterialButton buttonAssign, buttonAddTeacher;
     private DatabaseHelper databaseHelper;
+    private int coeff = -1;  // متغير لتخزين المعامل
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -36,11 +37,11 @@ public class AssignSubjectActivity extends AppCompatActivity {
         autoSection = findViewById(R.id.spinnerSection);
         autoYear = findViewById(R.id.spinnerYear);
         autoGroup = findViewById(R.id.spinnerGroup);
-        editTextCoefficient = findViewById(R.id.editTextCoefficient);
         buttonAssign = findViewById(R.id.buttonAssign);
         buttonAddTeacher = findViewById(R.id.buttonAddTeacher);
 
         databaseHelper = new DatabaseHelper(this);
+
 
         loadDropdowns();
 
@@ -53,8 +54,6 @@ public class AssignSubjectActivity extends AppCompatActivity {
         ArrayAdapter<String> teacherAdapter = new ArrayAdapter<>(
                 this, R.layout.dropdown_item, teachers);
         autoTeachers.setAdapter(teacherAdapter);
-        autoTeachers.setOnItemClickListener((parent, view, position, id) -> {
-        });
 
         List<String> subjects = databaseHelper.getAllSubjects();
         ArrayAdapter<String> subjectAdapter = new ArrayAdapter<>(
@@ -130,45 +129,60 @@ public class AssignSubjectActivity extends AppCompatActivity {
         String section = autoSection.getText().toString();
         String year = autoYear.getText().toString();
         String group = autoGroup.getText().toString();
-        String coefficientStr = editTextCoefficient.getText() != null ?
-                editTextCoefficient.getText().toString().trim() : "";
+
 
         if (teacher.isEmpty() || subject.isEmpty() || formation.isEmpty() ||
-                section.isEmpty() || year.isEmpty() || group.isEmpty() || coefficientStr.isEmpty()) {
+                section.isEmpty() || year.isEmpty() || group.isEmpty()) {
             Toast.makeText(this, "الرجاء تعبئة جميع الحقول", Toast.LENGTH_SHORT).show();
             return;
         }
-
-        try {
-            int coefficient = Integer.parseInt(coefficientStr);
-
-            if (coefficient <= 0) {
-                Toast.makeText(this, "المعامل يجب أن يكون رقمًا موجبًا", Toast.LENGTH_SHORT).show();
-                return;
+        databaseHelper.getCoefficientForSubjectFromJSON(this, "Génie logiciel", new DatabaseHelper.CoefficientCallback() {
+            @Override
+            public void onResult(int coefficient) {
+                if (coefficient != -1) {
+                    coeff = coefficient;
+                    Log.d("Coefficient", "المعامل: " + coefficient);
+                } else {
+                    Log.d("Coefficient", "المادة غير موجودة");
+                }
             }
 
-            boolean success = databaseHelper.assignSubject(
-                    teacher,
-                    subject,
-                    formation,
-                    section,
-                    year,
-                    group,
-                    coefficient
-            );
-
-            if (success) {
-                Toast.makeText(this, "تم ربط المادة بالمعلم بنجاح", Toast.LENGTH_SHORT).show();
-                clearFields();
-            } else {
-                Toast.makeText(this, "حدث خطأ أثناء محاولة الربط", Toast.LENGTH_SHORT).show();
+            @Override
+            public void onError(String errorMessage) {
+                Log.e("Coefficient", "خطأ: " + errorMessage);
             }
-        } catch (NumberFormatException e) {
-            Toast.makeText(this, "المعامل يجب أن يكون رقمًا صحيحًا", Toast.LENGTH_SHORT).show();
+        });
+
+
+        if (coeff == -1) {
+            Toast.makeText(this, "المعامل غير محدد", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        boolean success = databaseHelper.assignSubject(
+                teacher,
+                subject,
+                formation,
+                section,
+                year,
+                group,
+                coeff
+        );
+
+        if (success) {
+            Toast.makeText(this, "تم ربط المادة بالمعلم بنجاح", Toast.LENGTH_SHORT).show();
+            clearFields();
+        } else {
+            Toast.makeText(this, "حدث خطأ أثناء محاولة الربط", Toast.LENGTH_SHORT).show();
         }
     }
 
     private void clearFields() {
-        editTextCoefficient.setText("");
+        autoTeachers.setText("");
+        autoSubjects.setText("");
+        autoFormation.setText("");
+        autoSection.setText("");
+        autoYear.setText("");
+        autoGroup.setText("");
     }
 }
